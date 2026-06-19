@@ -2,12 +2,12 @@
 
 Take-home backend implementation for a private document knowledge base and RAG chatbot.
 
-The project uses Django REST Framework for APIs, JWT for authentication, PostgreSQL for relational data, Redis and Celery for asynchronous ingestion, Chroma for vector storage, LangChain for chunking/vector workflows, and OpenRouter for LLM responses.
+The backend uses Django REST Framework, JWT authentication, PostgreSQL, Redis, Celery, Flower, Chroma, LangChain, and OpenRouter. The React frontend in `../react-frontend` is a test console for registration/login, document upload, ingestion polling, chat history, JSON chat, and Server-Sent Events streaming.
 
 ## Architecture
 
 ```text
-Client / React
+React test console
   -> Django REST API
       -> PostgreSQL: users, documents, chat sessions, messages
       -> Redis: Celery broker and result backend
@@ -19,37 +19,127 @@ Client / React
 
 Key design choices:
 
-- `accounts` owns email-based authentication and JWT login.
-- `documents` owns uploaded files, ingestion status, text extraction, chunking, and Chroma indexing.
-- `chat` owns RAG query APIs, conversation history, and SSE streaming.
+- `accounts` owns email/password registration and JWT login.
+- `documents` owns upload validation, ingestion status, text extraction, chunking, and vector indexing.
+- `chat` owns RAG queries, chat continuation, chat history, and SSE streaming.
 - Each user's vectors are isolated in a Chroma collection named `user_<user_id>_documents`.
-- Uploaded files support PDF, TXT, and Markdown as required by the assessment.
-- The first ingestion downloads Chroma's local ONNX embedding model; Docker keeps this cache in a persistent volume shared by web and Celery.
+- Uploaded documents support PDF, TXT, and Markdown.
+- Docker named volumes keep uploaded media, Chroma data, PostgreSQL data, and model/cache files shared across backend services.
 
-## Run With Docker
+## Prerequisites
 
-Create a local environment file:
+- Docker Desktop or Docker Engine with Docker Compose.
+- Node.js and npm for the React test console.
+- An OpenRouter API key for live LLM chat responses.
+
+Document upload and ingestion can run without an OpenRouter key, but `/api/chat/query/` and `/api/chat/query/stream/` need `OPENROUTER_API_KEY` for live model responses.
+
+## Quick Start: Entire Application
+
+Run the backend fully in Docker, then run the frontend locally with Vite.
+
+### 1. Start the backend stack
+
+From the repository root:
 
 ```bash
+cd django-backend
 cp .env.example .env
 ```
 
-Set `OPENROUTER_API_KEY` in `.env` if you want live LLM responses. Document upload and ingestion can still run without the key.
-
-Start the full stack:
+Edit `.env` and set:
 
 ```bash
-docker compose up --build
+OPENROUTER_API_KEY=<your_openrouter_api_key>
+OPENROUTER_MODEL=openrouter/auto
 ```
 
-Services:
+The Docker Compose file overrides backend service URLs to use Docker service names such as `db` and `redis`, so you do not need to change `DATABASE_URL` or Redis URLs for the full-Docker workflow.
 
-- API: http://localhost:8000
-- Swagger docs: http://localhost:8000/api/docs/
+Build and start all backend services:
+
+```bash
+docker compose up -d --build
+```
+
+Check service health:
+
+```bash
+docker compose ps
+```
+
+Expected services:
+
+- `web`: Django API and Swagger docs on http://localhost:8000
+- `db`: PostgreSQL on localhost:5432
+- `redis`: Redis on localhost:6379
+- `celery`: background ingestion worker
+- `flower`: Celery dashboard on http://localhost:5555
+
+Useful backend URLs:
+
+- API base: http://localhost:8000/api
+- Swagger UI: http://localhost:8000/api/docs/
 - OpenAPI schema: http://localhost:8000/api/schema/
-- Flower dashboard: http://localhost:5555
-- PostgreSQL: localhost:5432
-- Redis: localhost:6379
+- Flower: http://localhost:5555
+
+### 2. Start the React test console
+
+In a second terminal, from the repository root:
+
+```bash
+cd react-frontend
+cp .env.example .env
+npm install
+npm run dev
+```
+
+The frontend defaults to:
+
+```bash
+VITE_API_BASE_URL=http://localhost:8000/api
+```
+
+Open the Vite URL printed by `npm run dev`, normally:
+
+```text
+http://localhost:5173
+```
+
+Use the UI to:
+
+1. Register or login.
+2. Upload PDF, TXT, or Markdown documents.
+3. Poll ingestion status until `SUCCESS`.
+4. Ask questions in Chat.
+5. Switch between Stream and JSON chat modes.
+6. Click previous conversations in chat history to review saved transcripts.
+
+## Backend Docker Commands
+
+Start or rebuild the full backend:
+
+```bash
+docker compose up -d --build
+```
+
+Start without rebuilding:
+
+```bash
+docker compose up -d
+```
+
+View logs:
+
+```bash
+docker compose logs -f web celery
+```
+
+Open a Django shell:
+
+```bash
+docker compose exec web python manage.py shell
+```
 
 Create an admin user:
 
@@ -57,38 +147,21 @@ Create an admin user:
 docker compose exec web python manage.py createsuperuser
 ```
 
-## Run Locally Without Docker
-
-Local mode uses PostgreSQL as well. Start the database and Redis services, then run Django from your virtualenv:
+Stop services but keep data volumes:
 
 ```bash
-docker compose up -d db redis
+docker compose down
 ```
 
-Your local `.env` should point to host ports:
+Reset all backend data, including PostgreSQL, uploaded files, Chroma vectors, and cache volumes:
 
 ```bash
-DATABASE_URL=postgres://ravid:ravid@localhost:5432/ravid
-REDIS_URL=redis://localhost:6379/0
-CELERY_BROKER_URL=redis://localhost:6379/0
-CELERY_RESULT_BACKEND=redis://localhost:6379/1
-```
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python manage.py migrate
-python manage.py runserver
-```
-
-Run a local worker if Redis is available:
-
-```bash
-celery -A config worker --loglevel=info
+docker compose down -v
 ```
 
 ## API Examples
+
+The React frontend is the easiest way to test the workflow, but the same API can be tested with curl.
 
 Register:
 
@@ -149,27 +222,65 @@ curl -N -X POST http://localhost:8000/api/chat/query/stream/ \
   -d '{"query":"What is the cancellation policy?"}'
 ```
 
-## Workflow To Explain In Interview
+List saved chat sessions:
+
+```bash
+curl http://localhost:8000/api/chat/sessions/ \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Fetch a saved transcript:
+
+```bash
+curl http://localhost:8000/api/chat/sessions/<chat_id>/ \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## API Documentation
+
+This project uses `drf-spectacular`.
+
+- Swagger UI: http://localhost:8000/api/docs/
+- OpenAPI schema endpoint: http://localhost:8000/api/schema/
+- Repository schema artifact: `openapi.yaml`
+
+To regenerate `openapi.yaml` on the host while using the Docker backend environment:
+
+```bash
+docker compose run --rm -v "$PWD:/app" web \
+  python manage.py spectacular --file openapi.yaml --validate
+```
+
+## Workflow
 
 1. The user registers and logs in with email/password.
 2. Login returns a JWT access token. Protected routes require `Authorization: Bearer <token>`.
-3. The user uploads a PDF/TXT/MD file.
-4. Django stores document metadata in PostgreSQL and enqueues a Celery task through Redis.
-5. Celery extracts raw text, chunks it using LangChain's `RecursiveCharacterTextSplitter`, embeds chunks with Chroma's local default embedding function, and writes vectors to the user's Chroma collection.
-6. The status endpoint reads the document row and Celery result to report `PROCESSING`, `SUCCESS`, or `FAILURE`.
-7. Chat query retrieves relevant chunks only from the authenticated user's collection, builds a context-aware prompt, calls OpenRouter, and stores the user/assistant messages.
-8. The streaming endpoint uses the same RAG flow but returns token chunks as `text/event-stream`.
+3. The user uploads a PDF, TXT, or Markdown file.
+4. Django stores document metadata in PostgreSQL and writes the uploaded file to the shared Docker media volume.
+5. Django enqueues a Celery ingestion task through Redis.
+6. Celery reads the uploaded file from the same shared media volume, extracts text, chunks content with LangChain's `RecursiveCharacterTextSplitter`, embeds chunks with Chroma's local embedding flow, and stores vectors in the user's isolated Chroma collection.
+7. The status endpoint reports `PROCESSING`, `SUCCESS`, or `FAILURE` from the document row and Celery result.
+8. Chat queries retrieve relevant chunks only from the authenticated user's collection, build a context-aware prompt, call OpenRouter, and store user/assistant messages.
+9. Chat continuation uses `chat_id` to include recent conversation history.
+10. Chat history endpoints let the frontend list previous sessions and reload saved transcripts.
+11. The streaming endpoint uses the same RAG flow but returns token chunks as `text/event-stream`.
 
 ## Tests
 
-Run:
+Run backend tests inside Docker:
 
 ```bash
-source .venv/bin/activate
-python manage.py test
+docker compose exec web python manage.py test
 ```
 
-The test suite covers:
+Run frontend checks from `../react-frontend`:
+
+```bash
+npm run lint
+npm run build
+```
+
+The backend test suite covers:
 
 - Registration, duplicate registration, login success/failure.
 - JWT protection for document upload.
@@ -177,21 +288,30 @@ The test suite covers:
 - Document status and ownership isolation.
 - RAG chat behavior with mocked model calls.
 - SSE behavior for the no-documents case.
+- Chat session list/detail history and ownership isolation.
 
 ## Environment Variables
 
-Important variables:
+Important backend variables:
 
-- `DATABASE_URL`: PostgreSQL connection string.
-- `REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`: Redis/Celery configuration.
-- `CHROMA_PERSIST_DIR`: persistent Chroma vector directory.
-- `OPENROUTER_API_KEY`: required for live LLM responses.
+- `SECRET_KEY`: Django secret key.
+- `ALLOWED_HOSTS`: allowed Django hosts.
+- `CORS_ALLOW_ALL_ORIGINS`: local frontend CORS switch.
+- `DATABASE_URL`: PostgreSQL connection string. Docker Compose sets this to `db`.
+- `REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`: Redis/Celery configuration. Docker Compose sets these to `redis`.
+- `MEDIA_ROOT`: uploaded file directory. Docker Compose sets this to `/app/media`.
+- `CHROMA_PERSIST_DIR`: Chroma vector directory. Docker Compose sets this to `/app/chroma_db`.
+- `OPENROUTER_API_KEY`: required for live LLM chat responses.
 - `OPENROUTER_MODEL`: OpenRouter model slug.
+- `OPENROUTER_BASE_URL`: OpenRouter API base URL.
 
-## Generated API Schema
+Important frontend variable:
 
-The repository includes `openapi.yaml`, generated with:
+- `VITE_API_BASE_URL`: API root used by the React test console. Default: `http://localhost:8000/api`.
 
-```bash
-python manage.py spectacular --file openapi.yaml --validate
-```
+## Notes For Reviewers
+
+- The backend is intended to run fully through Docker Compose.
+- The frontend runs locally with Vite so the reviewer can visually test the complete workflow.
+- Do not mix a local Django server with Docker Celery unless both processes share the same media and Chroma paths. The supported workflow is full Docker for backend services.
+- The first document ingestion may take longer because Chroma downloads and caches local embedding assets in the shared `app_cache` volume.
