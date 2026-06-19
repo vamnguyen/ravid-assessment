@@ -34,6 +34,31 @@ export type ChatResponse = {
   chat_id: string
 }
 
+export type ChatHistoryMessage = {
+  id: string
+  role: "user" | "assistant"
+  content: string
+  tokens_consumed: number
+  created_at: string
+}
+
+export type ChatSessionSummary = {
+  id: string
+  title: string
+  created_at: string
+  updated_at: string
+  message_count: number
+  last_message_preview: string
+  last_message_role: "" | "user" | "assistant"
+}
+
+export type ChatSessionDetail = Omit<
+  ChatSessionSummary,
+  "last_message_preview" | "last_message_role"
+> & {
+  messages: ChatHistoryMessage[]
+}
+
 export type ChatStreamEvent =
   | { event: "token"; data: { content: string } }
   | { event: "final"; data: ChatResponse }
@@ -207,6 +232,27 @@ export function queryChat(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(options.payload),
   })
+}
+
+export function listChatSessions(options: RequestOptions) {
+  return requestJson<ChatSessionSummary[]>("/chat/sessions/", {
+    apiBaseUrl: options.apiBaseUrl,
+    token: options.token,
+    method: "GET",
+  })
+}
+
+export function getChatSession(
+  options: RequestOptions & { chatId: string },
+) {
+  return requestJson<ChatSessionDetail>(
+    `/chat/sessions/${encodeURIComponent(options.chatId)}/`,
+    {
+      apiBaseUrl: options.apiBaseUrl,
+      token: options.token,
+      method: "GET",
+    },
+  )
 }
 
 function parseSseBlock(block: string): ChatStreamEvent | null {

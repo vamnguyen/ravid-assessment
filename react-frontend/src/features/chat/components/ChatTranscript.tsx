@@ -19,7 +19,7 @@ export function ChatTranscript() {
   }
 
   return (
-    <div className="flex min-h-[28rem] flex-col gap-3 rounded-lg border bg-background p-3">
+    <div className="flex min-h-[24rem] flex-1 flex-col gap-3 bg-background p-3 lg:min-h-0">
       <div className="flex items-center justify-between gap-3 px-1">
         <div className="flex min-w-0 flex-col gap-0.5">
           <h2 className="text-sm font-medium">Transcript</h2>
@@ -44,14 +44,14 @@ export function ChatTranscript() {
         </Tooltip>
       </div>
       <Separator />
-      <ScrollArea className="h-[23rem] pr-3">
-        <div className="flex flex-col gap-4">
+      <ScrollArea className="min-h-0 flex-1 pr-3">
+        <div className="flex min-h-full flex-col gap-4">
           {messages.length ? (
             messages.map((message) => (
               <MessageBubble key={message.id} message={message} />
             ))
           ) : (
-            <div className="flex h-64 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
+            <div className="flex min-h-64 flex-1 items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
               No chat messages yet.
             </div>
           )}

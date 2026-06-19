@@ -11,6 +11,7 @@ export type ChatSessionContextValue = {
   setChatError: (value: string) => void
   setIsChatting: (value: boolean) => void
   appendMessages: (messages: ChatMessage[]) => void
+  replaceMessages: (messages: ChatMessage[]) => void
   updateAssistantMessage: (
     assistantId: string,
     updater: (message: ChatMessage) => ChatMessage,

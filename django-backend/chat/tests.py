@@ -99,3 +99,66 @@ class ChatApiTests(TestCase):
         self.assertIn('event: token', body)
         self.assertIn('event: final', body)
         self.assertEqual(ChatMessage.objects.count(), 2)
+
+    def test_session_list_returns_only_current_users_history(self):
+        session = ChatSession.objects.create(owner=self.user, title='Policy chat')
+        ChatMessage.objects.create(
+            session=session,
+            role=ChatMessage.Role.USER,
+            content='What is the policy?',
+        )
+        ChatMessage.objects.create(
+            session=session,
+            role=ChatMessage.Role.ASSISTANT,
+            content='The policy requires 14 days notice.',
+            tokens_consumed=42,
+        )
+        other_user = User.objects.create_user(
+            email='other@example.com',
+            password='password123',
+        )
+        ChatSession.objects.create(owner=other_user, title='Hidden chat')
+
+        response = self.client.get('/api/chat/sessions/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]['id'], str(session.id))
+        self.assertEqual(response.data[0]['message_count'], 2)
+        self.assertEqual(response.data[0]['last_message_role'], 'assistant')
+        self.assertIn('14 days notice', response.data[0]['last_message_preview'])
+
+    def test_session_detail_returns_messages_in_order(self):
+        session = ChatSession.objects.create(owner=self.user, title='Policy chat')
+        user_message = ChatMessage.objects.create(
+            session=session,
+            role=ChatMessage.Role.USER,
+            content='What is the policy?',
+        )
+        assistant_message = ChatMessage.objects.create(
+            session=session,
+            role=ChatMessage.Role.ASSISTANT,
+            content='The policy requires 14 days notice.',
+            tokens_consumed=42,
+        )
+
+        response = self.client.get(f'/api/chat/sessions/{session.id}/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['id'], str(session.id))
+        self.assertEqual(response.data['message_count'], 2)
+        self.assertEqual(
+            [message['id'] for message in response.data['messages']],
+            [str(user_message.id), str(assistant_message.id)],
+        )
+
+    def test_session_detail_rejects_other_users_session(self):
+        other_user = User.objects.create_user(
+            email='other@example.com',
+            password='password123',
+        )
+        session = ChatSession.objects.create(owner=other_user, title='Hidden chat')
+
+        response = self.client.get(f'/api/chat/sessions/{session.id}/')
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

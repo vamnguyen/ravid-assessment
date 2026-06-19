@@ -20,6 +20,10 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
     setMessages((current) => [...current, ...newMessages])
   }, [])
 
+  const replaceMessages = useCallback((newMessages: ChatMessage[]) => {
+    setMessages(newMessages)
+  }, [])
+
   const updateAssistantMessage = useCallback(
     (
       assistantId: string,
@@ -65,6 +69,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
       setChatError,
       setIsChatting,
       appendMessages,
+      replaceMessages,
       updateAssistantMessage,
       setActiveAbortController,
       clearActiveAbortController,
@@ -78,6 +83,7 @@ export function ChatSessionProvider({ children }: { children: ReactNode }) {
       clearActiveAbortController,
       isChatting,
       messages,
+      replaceMessages,
       resetChat,
       setActiveAbortController,
       stopStream,

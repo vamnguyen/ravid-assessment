@@ -1,6 +1,8 @@
 import json
 
+from django.db.models import Count, OuterRef, Subquery
 from django.http import StreamingHttpResponse
+from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.response import Response
@@ -9,7 +11,12 @@ from rest_framework.views import APIView
 from documents.models import Document
 
 from .models import ChatMessage, ChatSession
-from .serializers import ChatQueryResponseSerializer, ChatQuerySerializer
+from .serializers import (
+    ChatQueryResponseSerializer,
+    ChatQuerySerializer,
+    ChatSessionDetailSerializer,
+    ChatSessionListSerializer,
+)
 from .services import (
     ChatConfigurationError,
     build_context,
@@ -34,6 +41,68 @@ def recent_history(session, limit=10):
 def no_documents_response(query):
     answer = 'No documents have been successfully indexed for this user yet.'
     return answer, estimate_tokens(query + ' ' + answer)
+
+
+def chat_session_queryset(user):
+    latest_message = ChatMessage.objects.filter(session=OuterRef('pk')).order_by(
+        '-created_at'
+    )
+    return (
+        ChatSession.objects.filter(owner=user)
+        .annotate(
+            message_count=Count('messages'),
+            last_message_content=Subquery(latest_message.values('content')[:1]),
+            last_message_role=Subquery(latest_message.values('role')[:1]),
+        )
+        .order_by('-updated_at')
+    )
+
+
+def store_chat_exchange(session, query, answer, tokens):
+    ChatMessage.objects.create(
+        session=session,
+        role=ChatMessage.Role.USER,
+        content=query,
+    )
+    ChatMessage.objects.create(
+        session=session,
+        role=ChatMessage.Role.ASSISTANT,
+        content=answer,
+        tokens_consumed=tokens,
+    )
+    session.save(update_fields=['updated_at'])
+
+
+class ChatSessionListView(APIView):
+    @extend_schema(
+        responses={
+            200: ChatSessionListSerializer(many=True),
+            401: OpenApiResponse(description='Authentication required'),
+        },
+    )
+    def get(self, request):
+        serializer = ChatSessionListSerializer(
+            chat_session_queryset(request.user),
+            many=True,
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class ChatSessionDetailView(APIView):
+    @extend_schema(
+        responses={
+            200: ChatSessionDetailSerializer,
+            401: OpenApiResponse(description='Authentication required'),
+            404: OpenApiResponse(description='Chat session not found'),
+        },
+    )
+    def get(self, request, session_id):
+        session = get_object_or_404(
+            ChatSession.objects.filter(owner=request.user).prefetch_related('messages'),
+            id=session_id,
+        )
+        serializer = ChatSessionDetailSerializer(session)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class ChatQueryView(APIView):
@@ -73,17 +142,7 @@ class ChatQueryView(APIView):
             answer = result.answer
             tokens = result.tokens_consumed
 
-        ChatMessage.objects.create(
-            session=session,
-            role=ChatMessage.Role.USER,
-            content=query,
-        )
-        ChatMessage.objects.create(
-            session=session,
-            role=ChatMessage.Role.ASSISTANT,
-            content=answer,
-            tokens_consumed=tokens,
-        )
+        store_chat_exchange(session, query, answer, tokens)
 
         return Response(
             {
@@ -123,17 +182,7 @@ class ChatStreamView(APIView):
                 status=Document.Status.SUCCESS,
             ).exists():
                 answer, tokens = no_documents_response(query)
-                ChatMessage.objects.create(
-                    session=session,
-                    role=ChatMessage.Role.USER,
-                    content=query,
-                )
-                ChatMessage.objects.create(
-                    session=session,
-                    role=ChatMessage.Role.ASSISTANT,
-                    content=answer,
-                    tokens_consumed=tokens,
-                )
+                store_chat_exchange(session, query, answer, tokens)
                 yield encode_event('token', {'content': answer})
                 yield encode_event(
                     'final',
@@ -160,17 +209,7 @@ class ChatStreamView(APIView):
                 answer = ''.join(answer_parts)
                 tokens = estimate_tokens(query + ' ' + context + ' ' + answer)
 
-                ChatMessage.objects.create(
-                    session=session,
-                    role=ChatMessage.Role.USER,
-                    content=query,
-                )
-                ChatMessage.objects.create(
-                    session=session,
-                    role=ChatMessage.Role.ASSISTANT,
-                    content=answer,
-                    tokens_consumed=tokens,
-                )
+                store_chat_exchange(session, query, answer, tokens)
 
                 yield encode_event(
                     'final',
