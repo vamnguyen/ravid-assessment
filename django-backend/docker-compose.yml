@@ -1,0 +1,104 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ravid
+      POSTGRES_USER: ravid
+      POSTGRES_PASSWORD: ravid
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ravid -d ravid"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build: .
+    environment:
+      DEBUG: "False"
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0
+      CORS_ALLOW_ALL_ORIGINS: "True"
+      DATABASE_URL: postgres://ravid:ravid@db:5432/ravid
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      MEDIA_ROOT: /app/media
+      CHROMA_PERSIST_DIR: /app/chroma_db
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openrouter/auto}
+      OPENROUTER_BASE_URL: https://openrouter.ai/api/v1
+      OPENROUTER_HTTP_REFERER: http://localhost:8000
+      OPENROUTER_APP_TITLE: RAVID Django RAG Backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - media_data:/app/media
+      - chroma_data:/app/chroma_db
+      - app_cache:/app/.cache
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery:
+    build: .
+    command: celery -A config worker --loglevel=info
+    environment:
+      DEBUG: "False"
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0
+      DATABASE_URL: postgres://ravid:ravid@db:5432/ravid
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      MEDIA_ROOT: /app/media
+      CHROMA_PERSIST_DIR: /app/chroma_db
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openrouter/auto}
+      OPENROUTER_BASE_URL: https://openrouter.ai/api/v1
+      OPENROUTER_HTTP_REFERER: http://localhost:8000
+      OPENROUTER_APP_TITLE: RAVID Django RAG Backend
+    volumes:
+      - media_data:/app/media
+      - chroma_data:/app/chroma_db
+      - app_cache:/app/.cache
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  flower:
+    build: .
+    command: celery -A config flower --port=5555
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      DATABASE_URL: postgres://ravid:ravid@db:5432/ravid
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    ports:
+      - "5555:5555"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  media_data:
+  chroma_data:
+  app_cache:

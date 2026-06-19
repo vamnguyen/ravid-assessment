@@ -1,0 +1,284 @@
+openapi: 3.0.3
+info:
+  title: RAVID Chatbot Backend API
+  version: 1.0.0
+  description: Backend APIs for user auth, document ingestion, and RAG chat.
+paths:
+  /api/chat/query/:
+    post:
+      operationId: chat_query_create
+      tags:
+      - chat
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatQuery'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChatQuery'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChatQuery'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatQueryResponse'
+          description: ''
+        '400':
+          description: Invalid chat request
+        '401':
+          description: Authentication required
+        '500':
+          description: LLM configuration error
+  /api/chat/query/stream/:
+    post:
+      operationId: chat_query_stream_create
+      tags:
+      - chat
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatQuery'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChatQuery'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChatQuery'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: Server-Sent Events stream
+        '400':
+          description: Invalid chat request
+        '401':
+          description: Authentication required
+  /api/documents/status/:
+    get:
+      operationId: documents_status_retrieve
+      parameters:
+      - in: query
+        name: task_id
+        schema:
+          type: string
+        required: true
+      tags:
+      - documents
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentStatusResponse'
+          description: ''
+        '400':
+          description: Missing task_id
+        '404':
+          description: Task not found
+        '401':
+          description: Authentication required
+  /api/documents/upload/:
+    post:
+      operationId: documents_upload_create
+      tags:
+      - documents
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DocumentUpload'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/DocumentUpload'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DocumentUpload'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          description: Document uploaded and ingestion started
+        '400':
+          description: Invalid upload
+        '401':
+          description: Authentication required
+  /api/login/:
+    post:
+      operationId: login_create
+      tags:
+      - login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Login'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Login'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginSuccessResponse'
+          description: ''
+        '401':
+          description: Invalid credentials
+  /api/register/:
+    post:
+      operationId: register_create
+      tags:
+      - register
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Register'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Register'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Register'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterSuccessResponse'
+          description: ''
+        '400':
+          description: Registration failed
+components:
+  schemas:
+    ChatQuery:
+      type: object
+      properties:
+        query:
+          type: string
+        chat_id:
+          type: string
+          format: uuid
+      required:
+      - query
+    ChatQueryResponse:
+      type: object
+      properties:
+        answer:
+          type: string
+        tokens_consumed:
+          type: integer
+        chat_id:
+          type: string
+          format: uuid
+      required:
+      - answer
+      - chat_id
+      - tokens_consumed
+    DocumentStatusResponse:
+      type: object
+      properties:
+        task_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/StatusEnum'
+        message:
+          type: string
+        error:
+          type: string
+      required:
+      - status
+      - task_id
+    DocumentUpload:
+      type: object
+      properties:
+        file:
+          type: string
+          format: uri
+      required:
+      - file
+    Login:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          writeOnly: true
+      required:
+      - email
+      - password
+    LoginSuccessResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        token:
+          type: string
+      required:
+      - message
+      - token
+    Register:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          writeOnly: true
+          minLength: 8
+      required:
+      - email
+      - password
+    RegisterSuccessResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        user_id:
+          type: string
+      required:
+      - message
+      - user_id
+    StatusEnum:
+      enum:
+      - UPLOADED
+      - PROCESSING
+      - SUCCESS
+      - FAILURE
+      type: string
+      description: |-
+        * `UPLOADED` - Uploaded
+        * `PROCESSING` - Processing
+        * `SUCCESS` - Success
+        * `FAILURE` - Failure
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
