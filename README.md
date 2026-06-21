@@ -1,3 +1,6 @@
+# Screenshot Chat
+![demo](image.png)
+
 # R.A.V.I.D. Chatbot Backend
 
 Take-home backend implementation for a private document knowledge base and RAG chatbot.
